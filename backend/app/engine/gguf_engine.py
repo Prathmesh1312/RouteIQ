@@ -14,12 +14,17 @@ try:
     _LLAMA_CPP_AVAILABLE = True
 except ImportError:
     import sys
-    for vp in [
-        Path(__file__).resolve().parent.parent.parent.parent.parent / "venv" / "lib" / "python3.13" / "site-packages",
-        Path(__file__).resolve().parent.parent.parent.parent / "venv" / "lib" / "python3.13" / "site-packages",
-    ]:
-        if vp.exists() and str(vp) not in sys.path:
-            sys.path.insert(0, str(vp))
+    py_ver = f"python{sys.version_info.major}.{sys.version_info.minor}"
+    base_parents = [
+        Path(__file__).resolve().parent.parent.parent.parent.parent / "venv" / "lib",
+        Path(__file__).resolve().parent.parent.parent.parent / "venv" / "lib",
+        Path(__file__).resolve().parent.parent.parent / "venv" / "lib"
+    ]
+    for b in base_parents:
+        if b.exists():
+            for sp in b.glob("python*/site-packages"):
+                if sp.exists() and str(sp) not in sys.path:
+                    sys.path.insert(0, str(sp))
     try:
         import llama_cpp
         _LLAMA_CPP_AVAILABLE = True
@@ -141,7 +146,7 @@ class GGUFEngine:
 
     def _scan_and_catalog(self):
         """
-        Discovers all available GGUF models in model_dir.
+        Discovers all available GGUF models in model_dir with case-insensitive canonical aliasing.
         """
         if not self.model_dir.exists():
             return
@@ -150,6 +155,15 @@ class GGUFEngine:
             meta = self._read_gguf_metadata(f)
             if meta.get("valid"):
                 self._models_catalog[f.name] = meta
+                # Alias canonical names case-insensitively (fixes Linux ext4 case-sensitivity differences)
+                for canonical in [
+                    "Mistral-7B-Instruct-v0.2.Q4_K_M.gguf",
+                    "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
+                    "qwen2.5-coder-7b-instruct-q4_k_m.gguf",
+                    "DeepSeek-R1-Distill-Qwen-14B-Q4_K_M.gguf"
+                ]:
+                    if f.name.lower() == canonical.lower():
+                        self._models_catalog[canonical] = meta
 
     def get_catalog(self) -> Dict[str, Dict[str, Any]]:
         return self._models_catalog
@@ -157,11 +171,22 @@ class GGUFEngine:
     def has_model_file(self, filename: Optional[str]) -> bool:
         if not filename:
             return False
-        return filename in self._models_catalog or (self.model_dir / filename).exists()
+        if filename in self._models_catalog or (self.model_dir / filename).exists():
+            return True
+        f_lower = filename.lower()
+        return any(k.lower() == f_lower for k in self._models_catalog) or any(
+            f.name.lower() == f_lower for f in self.model_dir.glob("*.gguf")
+        )
 
     def get_model_path(self, filename: str) -> Optional[Path]:
         p = self.model_dir / filename
-        return p if p.exists() else None
+        if p.exists():
+            return p
+        f_lower = filename.lower()
+        for f in self.model_dir.glob("*.gguf"):
+            if f.name.lower() == f_lower:
+                return f
+        return None
 
     def execute_inference(
         self,

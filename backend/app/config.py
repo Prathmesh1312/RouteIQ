@@ -6,12 +6,18 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 APP_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = BASE_DIR.parent
 
-# Detect and prioritize local virtualenv site-packages (for llama_cpp, Metal wheels, etc.)
-for vp in [
-    PROJECT_DIR.parent / "venv" / "lib" / "python3.13" / "site-packages",
-    PROJECT_DIR / "venv" / "lib" / "python3.13" / "site-packages",
-    BASE_DIR / "venv" / "lib" / "python3.13" / "site-packages",
-]:
+# Detect and prioritize local virtualenv site-packages (for llama_cpp, Metal/CPU wheels, etc.)
+py_ver = f"python{sys.version_info.major}.{sys.version_info.minor}"
+venv_candidates = [
+    PROJECT_DIR.parent / "venv" / "lib" / py_ver / "site-packages",
+    PROJECT_DIR / "venv" / "lib" / py_ver / "site-packages",
+    BASE_DIR / "venv" / "lib" / py_ver / "site-packages",
+]
+for venv_root in [PROJECT_DIR.parent / "venv" / "lib", PROJECT_DIR / "venv" / "lib", BASE_DIR / "venv" / "lib"]:
+    if venv_root.exists():
+        venv_candidates.extend(venv_root.glob("python*/site-packages"))
+
+for vp in venv_candidates:
     if vp.exists() and str(vp) not in sys.path:
         sys.path.insert(0, str(vp))
 

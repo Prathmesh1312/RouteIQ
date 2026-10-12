@@ -49,7 +49,7 @@ echo -e "\n${BOLD}[1/6] Installing System Prerequisites (Python 3, Nginx, Git, C
 if command -v apt-get >/dev/null 2>&1; then
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -y
-    apt-get install -y python3 python3-pip python3-venv python3-dev nginx git curl uvicorn
+    apt-get install -y python3 python3-pip python3-venv python3-dev nginx git curl uvicorn build-essential cmake
 elif command -v dnf >/dev/null 2>&1; then
     dnf update -y || true
     dnf install -y python3 python3-pip git nginx curl
