@@ -52,6 +52,7 @@ fi
 # 2. Update Python Dependencies
 echo -e "\n${BOLD}[2/4] Updating Dependencies in Virtual Environment...${NC}"
 if [ -f "$VENV_DIR/bin/pip" ]; then
+    export CMAKE_BUILD_PARALLEL_LEVEL=1
     "$VENV_DIR/bin/pip" install --upgrade pip setuptools wheel
     "$VENV_DIR/bin/pip" install -r "$PROJECT_DIR/backend/requirements.txt"
     echo -e "${GREEN}✓ Dependencies up to date.${NC}"

@@ -61,6 +61,16 @@ else
     exit 1
 fi
 
+# Ensure swap space exists (prevents C++ OOM during llama-cpp-python builds on low-RAM EC2 instances)
+if [ ! -f /swapfile ] && [ $(free -m | awk '/^Mem:/{print $2}') -lt 8000 ]; then
+    echo "Creating 4GB swapfile for compilation headroom..."
+    fallocate -l 4G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=4096
+    chmod 600 /swapfile
+    mkswap /swapfile
+    swapon /swapfile
+    grep -q '/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
+
 # 4. Pull Latest Code from Git
 echo -e "\n${BOLD}[2/6] Checking Git Status & Latest Commits...${NC}"
 cd "$PROJECT_DIR"
@@ -83,8 +93,9 @@ fi
 
 # Install and upgrade pip packages
 echo "Installing backend dependencies from backend/requirements.txt..."
-sudo -u "$ACTUAL_USER" "$VENV_DIR/bin/pip" install --upgrade pip setuptools wheel
-sudo -u "$ACTUAL_USER" "$VENV_DIR/bin/pip" install -r "$PROJECT_DIR/backend/requirements.txt"
+export CMAKE_BUILD_PARALLEL_LEVEL=1
+sudo -u "$ACTUAL_USER" CMAKE_BUILD_PARALLEL_LEVEL=1 "$VENV_DIR/bin/pip" install --upgrade pip setuptools wheel
+sudo -u "$ACTUAL_USER" CMAKE_BUILD_PARALLEL_LEVEL=1 "$VENV_DIR/bin/pip" install -r "$PROJECT_DIR/backend/requirements.txt"
 
 # Ensure .env exists
 if [ ! -f "$PROJECT_DIR/.env" ] && [ -f "$PROJECT_DIR/.env.example" ]; then
