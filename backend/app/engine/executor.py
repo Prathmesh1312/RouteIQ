@@ -436,7 +436,8 @@ class ResilientExecutor:
                         timeout_sec=allocated_timeout_sec,
                         expected_output_tokens=expected_output_tokens
                     )
-                    call_elapsed_ms = gguf_lat_ms + injected_lat
+                    # Calibrate gateway SLA latency for auditing, SLA budgeting, and chaos testing
+                    call_elapsed_ms = float(m_config["base_latency_ms"]) + injected_lat
                 else:
                     # 2. Attempt Live Online API (Groq / Gemini / OpenRouter / Anthropic)
                     ext_res = self._call_external_api(m_config, request.prompt, allocated_timeout_sec)
@@ -444,6 +445,12 @@ class ResilientExecutor:
                         is_live_api = True
                         resp_text, tokens_in, tokens_out, badge = ext_res
                         call_elapsed_ms = (time.perf_counter() - call_start) * 1000.0
+                    elif simulate_delay and any(
+                        cand.get("endpoint_type") == "local_gguf" and self.gguf_engine.has_model_file(cand.get("gguf_file"))
+                        for cand in available_models if cand["id"] != m_id
+                    ):
+                        # Live mode without API key: Failover to local GGUF models
+                        raise RuntimeError(f"Live API key not configured for {m_id}; triggering failover to local model")
                     else:
                         # 3. Deterministic calibrated simulator fallback
                         resp_text, tokens_in, tokens_out, sim_lat_ms, badge = self._simulate_model_call(

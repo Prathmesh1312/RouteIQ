@@ -1,9 +1,19 @@
 import os
+import sys
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 APP_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = BASE_DIR.parent
+
+# Detect and prioritize local virtualenv site-packages (for llama_cpp, Metal wheels, etc.)
+for vp in [
+    PROJECT_DIR.parent / "venv" / "lib" / "python3.13" / "site-packages",
+    PROJECT_DIR / "venv" / "lib" / "python3.13" / "site-packages",
+    BASE_DIR / "venv" / "lib" / "python3.13" / "site-packages",
+]:
+    if vp.exists() and str(vp) not in sys.path:
+        sys.path.insert(0, str(vp))
 
 DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)

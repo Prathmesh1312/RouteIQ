@@ -11,9 +11,27 @@ from typing import Dict, Any, Optional, Tuple, List
 
 try:
     import llama_cpp
-    HAS_LLAMA_CPP = True
+    _LLAMA_CPP_AVAILABLE = True
 except ImportError:
-    HAS_LLAMA_CPP = False
+    import sys
+    for vp in [
+        Path(__file__).resolve().parent.parent.parent.parent.parent / "venv" / "lib" / "python3.13" / "site-packages",
+        Path(__file__).resolve().parent.parent.parent.parent / "venv" / "lib" / "python3.13" / "site-packages",
+    ]:
+        if vp.exists() and str(vp) not in sys.path:
+            sys.path.insert(0, str(vp))
+    try:
+        import llama_cpp
+        _LLAMA_CPP_AVAILABLE = True
+    except ImportError:
+        _LLAMA_CPP_AVAILABLE = False
+
+def is_llama_cpp_enabled() -> bool:
+    return _LLAMA_CPP_AVAILABLE and os.environ.get("ENABLE_LLAMA_CPP", "1").lower() not in ("0", "false", "no")
+
+# Keep HAS_LLAMA_CPP for module-level backwards compatibility
+HAS_LLAMA_CPP = is_llama_cpp_enabled()
+
 
 
 class GGUFEngine:
@@ -34,6 +52,11 @@ class GGUFEngine:
         self._models_catalog: Dict[str, Dict[str, Any]] = {}
         self._llama_instances: Dict[str, Any] = {}
         self._scan_and_catalog()
+
+    @property
+    def has_llama_cpp(self) -> bool:
+        return is_llama_cpp_enabled()
+
 
     def _read_gguf_metadata(self, file_path: Path) -> Dict[str, Any]:
         """
@@ -167,29 +190,68 @@ class GGUFEngine:
         tokens_in = max(10, len(prompt.split()) * 2)
 
         # 1. Hardware accelerated execution via llama_cpp if installed
-        if HAS_LLAMA_CPP:
+        if self.has_llama_cpp:
             try:
+                # Prevent Unified Memory exhaustion (16GB RAM) by releasing inactive model instances
+                if len(self._llama_instances) > 0 and gguf_filename not in self._llama_instances:
+                    for k in list(self._llama_instances.keys()):
+                        del self._llama_instances[k]
+                    import gc
+                    gc.collect()
+
                 if gguf_filename not in self._llama_instances:
-                    self._llama_instances[gguf_filename] = llama_cpp.Llama(
-                        model_path=str(model_path),
-                        n_ctx=min(4096, meta.get("context_length", 4096)),
-                        n_gpu_layers=99,
-                        n_threads=4,
-                        verbose=False
-                    )
+                    try:
+                        self._llama_instances[gguf_filename] = llama_cpp.Llama(
+                            model_path=str(model_path),
+                            n_ctx=min(2048, meta.get("context_length", 2048)),
+                            n_gpu_layers=99,
+                            n_threads=4,
+                            verbose=False
+                        )
+                    except Exception as gpu_err:
+                        print(f"[GGUFEngine] Metal load warning ({gpu_err}), falling back to CPU...")
+                        self._llama_instances[gguf_filename] = llama_cpp.Llama(
+                            model_path=str(model_path),
+                            n_ctx=min(2048, meta.get("context_length", 2048)),
+                            n_gpu_layers=0,
+                            n_threads=4,
+                            verbose=False
+                        )
+
                 llm = self._llama_instances[gguf_filename]
-                output = llm(
-                    prompt,
-                    max_tokens=min(expected_output_tokens, 250),
-                    stop=["</s>", "<|im_end|>", "<|eot_id|>"]
-                )
-                choice = output["choices"][0]["text"]
-                usage = output.get("usage", {})
-                t_in = usage.get("prompt_tokens", tokens_in)
-                t_out = usage.get("completion_tokens", len(choice.split()) * 2)
+                max_tokens = min(max(expected_output_tokens, 150), 512)
+
+                # Prioritize chat completion for instruct models (Llama 3.1, Qwen 2.5 Coder, Mistral, DeepSeek)
+                choice = ""
+                try:
+                    chat_res = llm.create_chat_completion(
+                        messages=[
+                            {"role": "system", "content": "You are a helpful, concise AI assistant."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        max_tokens=max_tokens,
+                        temperature=0.3
+                    )
+                    choice = (chat_res["choices"][0]["message"]["content"] or "").strip()
+                    usage = chat_res.get("usage", {})
+                    t_in = usage.get("prompt_tokens", tokens_in)
+                    t_out = usage.get("completion_tokens", max(1, len(choice.split()) * 2))
+                except Exception:
+                    # Fallback to standard text generation if chat completion isn't supported
+                    output = llm(
+                        prompt,
+                        max_tokens=max_tokens,
+                        stop=["</s>", "<|im_end|>", "<|eot_id|>"]
+                    )
+                    choice = (output["choices"][0]["text"] or "").strip()
+                    usage = output.get("usage", {})
+                    t_in = usage.get("prompt_tokens", tokens_in)
+                    t_out = usage.get("completion_tokens", max(1, len(choice.split()) * 2))
+
                 elapsed_ms = (time.perf_counter() - t_start) * 1000.0
                 return choice, t_in, t_out, elapsed_ms, f"[LOCAL GGUF: Metal / {meta.get('quantization', 'Q4_K_M')}]"
-            except Exception:
+            except Exception as e:
+                print(f"[GGUFEngine] Local GGUF inference error on {gguf_filename}: {e}")
                 pass  # Fallback to free online or native Apple Silicon engine
 
         # 2. Check for Free Online Cloud APIs if user set API keys

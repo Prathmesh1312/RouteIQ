@@ -1,3 +1,4 @@
+import os
 import unittest
 import json
 from pathlib import Path
@@ -19,6 +20,8 @@ class TestGGUFIntegration(unittest.TestCase):
     and executed with 0 SLA violations.
     """
     def setUp(self):
+        self._prev_llama_env = os.environ.get("ENABLE_LLAMA_CPP")
+        os.environ["ENABLE_LLAMA_CPP"] = "0"
         self.gguf_engine = GGUFEngine()
         with open(MODELS_REGISTRY_PATH, "r", encoding="utf-8") as f:
             all_models = json.load(f)
@@ -36,6 +39,12 @@ class TestGGUFIntegration(unittest.TestCase):
             estimator=self.estimator,
             gguf_engine=self.gguf_engine
         )
+
+    def tearDown(self):
+        if self._prev_llama_env is not None:
+            os.environ["ENABLE_LLAMA_CPP"] = self._prev_llama_env
+        else:
+            os.environ.pop("ENABLE_LLAMA_CPP", None)
 
     def test_gguf_catalog_contains_all_models(self):
         catalog = self.gguf_engine.get_catalog()

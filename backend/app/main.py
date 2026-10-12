@@ -398,7 +398,8 @@ class RouteIQHandler(BaseHTTPRequestHandler):
             CHAOS_MANAGER.reset_all()
             for cb in CIRCUIT_BREAKERS.values():
                 cb.reset()
-            self._send_json(200, {"status": "all chaos and circuit breakers reset"})
+            TELEMETRY_STORE.reset()
+            self._send_json(200, {"status": "all chaos, circuit breakers, and telemetry reset"})
 
         elif path == "/audit/clear":
             AUDIT_DB.clear()

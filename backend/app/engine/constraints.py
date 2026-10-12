@@ -51,8 +51,11 @@ def evaluate_candidates(
         if not cost_fit:
             reasons.append(f"Cost ${est_cost:.6f} exceeds remaining budget ${remaining_cost_usd:.6f}")
 
-        # 4. Latency Budget (Live EMA/p95 + Chaos Injection)
-        measured_lat = telemetry.get_rolling_p95_latency(m_id) or m["base_latency_ms"]
+        # 4. Latency Budget (Calibrated SLA + Live EMA + Chaos Injection)
+        if m.get("endpoint_type") == "local_gguf":
+            measured_lat = m["base_latency_ms"]
+        else:
+            measured_lat = telemetry.get_rolling_p95_latency(m_id) or m["base_latency_ms"]
         injected_lat = chaos_manager.get_injected_latency(m_id)
         predicted_lat = measured_lat + injected_lat
         latency_fit = predicted_lat <= remaining_latency_ms
@@ -64,7 +67,12 @@ def evaluate_candidates(
         if not cap_fit:
             reasons.append(f"Capability {m['capability_score']:.2f} < required {required_capability:.2f}")
 
-        passed = is_healthy and context_fit and cost_fit and latency_fit and cap_fit
+        # 6. Endpoint Type Check (Demo mode: local models only, exclude cloud API from routing)
+        is_cloud_api = (m.get("endpoint_type") == "cloud_api")
+        if is_cloud_api:
+            reasons.append("Cloud API inactive (Demo mode: local models only)")
+
+        passed = not is_cloud_api and is_healthy and context_fit and cost_fit and latency_fit and cap_fit
 
         audit = CandidateAudit(
             model_id=m_id,

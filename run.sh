@@ -30,6 +30,7 @@ else
 fi
 
 export PYTHONPATH=".:$PYTHONPATH"
+export ENABLE_LLAMA_CPP="${ENABLE_LLAMA_CPP:-1}"
 
 # 2. Command Line Arguments Dispatcher
 case "$1" in

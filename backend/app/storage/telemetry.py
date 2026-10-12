@@ -17,6 +17,14 @@ class TelemetryStore:
         self.error_counts: Dict[str, int] = {}
         self.total_tokens_in: Dict[str, int] = {}
         self.total_tokens_out: Dict[str, int] = {}
+    def reset(self):
+        with self._lock:
+            self.ema_latencies.clear()
+            self.recent_latencies.clear()
+            self.request_counts.clear()
+            self.error_counts.clear()
+            self.total_tokens_in.clear()
+            self.total_tokens_out.clear()
 
     def record_call(self, model_id: str, latency_ms: float, success: bool, tokens_in: int = 0, tokens_out: int = 0):
         with self._lock:
